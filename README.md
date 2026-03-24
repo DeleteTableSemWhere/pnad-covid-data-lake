@@ -11,60 +11,60 @@
 
 Este projeto é o **Tech Challenge da Fase 3** da Pós-Tech em Data Analytics da FIAP. O objetivo é atuar como consultoria de dados para um grande hospital, analisando a pesquisa **PNAD-COVID-19** do IBGE para construir um **Plano de Contingência Estratégico** em caso de um novo surto da doença.
 
-Diferente de análises locais em planilhas, este projeto implementa uma **Arquitetura de Data Lake em Nuvem (AWS)**, projetada para processar microdados massivos (Big Data) e extrair inteligência acionável através de modelagem SQL e Business Intelligence.
+Diferente de análises locais em planilhas, este projeto implementa uma **Arquitetura de Data Lake em Nuvem (AWS)**, projetada para processar microdados massivos (Big Data) e extrair inteligência acionável através de processamento distribuído (PySpark) e Business Intelligence.
 
 ---
 
 ## Principais Destaques
 
-* **Arquitetura Medallion na AWS:** Implementação completa de um Data Lake com camadas Raw, Bronze, Silver e Gold no Amazon S3 e Athena.
-* **Processamento Distribuído (Big Data):** Utilização de Jobs **PySpark** no AWS Glue para converter e particionar arquivos CSV massivos (milhões de linhas) para o formato colunar `.parquet`.
-* **Tratamento de Metadados Complexos:** Limpeza avançada de dicionários do IBGE (arquivos `.xls` legados) usando **Pandas**, resolvendo problemas estruturais (células mescladas, *forward fill*) e inconsistências de tipagem antes da ingestão.
-* **Fronteira de Agregação no Athena:** Delegação de todo o processamento de regras de negócio (Camadas Silver e Gold) para o motor do **Amazon Athena**, mantendo a ferramenta de BI estritamente focada na visualização.
-* **Escopo Analítico Cirúrgico:** Seleção estratégica de apenas **20 variáveis** (Pilares: Demografia, Sintomas, Sobrecarga, Comportamento e Economia), analisando um recorte temporal específico de 3 meses (Julho, Agosto, Setembro).
+* **Arquitetura Medallion na AWS:** Implementação completa de um pipeline automatizado com camadas Raw, Bronze, Silver e Gold no Amazon S3.
+* **ETL Distribuído com PySpark:** Utilização de 4 Jobs no **AWS Glue** para orquestrar desde a extração no FTP governamental até a consolidação final.
+* **Desnormalização Dinâmica (Zero Hardcode):** A tradução dos códigos do IBGE (ex: `11` = `Rondônia`) não é feita manualmente. O Job Gold constrói um *lookup dictionary* dinâmico a partir dos metadados e injeta as regras de negócio via PySpark, garantindo resiliência a mudanças no questionário.
+* **Escopo Analítico Cirúrgico:** Filtragem semântica focada em responder **20 perguntas norteadoras estratégicas** (Pilares: Demografia, Sintomas, Sobrecarga, Comportamento e Economia), analisando o trimestre de Setembro, Outubro e Novembro de 2020.
 
 ---
 
 ## Engenharia de Dados e Pipeline (AWS)
 
-O projeto segue um fluxo de dados (pipeline) automatizado e escalável na Amazon Web Services:
+O projeto segue um fluxo de dados (pipeline) estruturado em 4 etapas no AWS Glue:
 
-### 1. Ingestão e Camada Raw (`Data Ingestion`)
-* **Fonte:** Arquivos públicos da pesquisa PNAD-COVID-19 via FTP do IBGE.
-* **Processo:** Um script no **AWS Glue (Python)** conecta-se diretamente ao FTP, realiza a extração dos dados brutos e os descarrega no Amazon S3 (`data_input/`).
+### 1. Ingestão e Camada Raw (`Job 01 - Coleta`)
+* **Processo:** Script Python (Boto3/Requests) executado via Glue para extrair os microdados (`.zip`) e a documentação (`.xls`) diretamente do FTP do IBGE, descarregando-os intactos no Amazon S3 (`data_input/`).
 
-### 2. Processamento e Camada Bronze (`Data Transformation`)
-* **Dicionário (Pandas):** Script executado via AWS Glue Notebook para limpar e padronizar os metadados. Tratamento de *schema enforcement* forçando colunas para `String` para evitar erros de leitura (`ArrowInvalid`).
-* **Microdados (PySpark):** Job de ETL distribuído para leitura dos arquivos massivos, conversão e particionamento dos dados para `.parquet`, garantindo compressão e otimização de leitura. Salvamento no Amazon S3 (`data_output/bronze/`).
+### 2. Processamento e Camada Bronze (`Job 02 - Bronze`)
+* **Microdados:** O job extrai o CSV de dentro do ZIP dinamicamente, infere o schema e grava no formato colunar `.parquet` (`data_output/bronze/`).
+* **Resiliência:** O código possui detecção e adequação automática para garantir a leitura independentemente do separador utilizado pelo IBGE.
 
-### 3. Orquestração e Catálogo de Dados (`Data Catalog`)
-* **Automação:** Utilização de orquestração baseada em eventos (via **AWS Glue Workflows / EventBridge**) para disparar automaticamente o **AWS Glue Crawler** assim que os Jobs de processamento são finalizados.
-* **Catálogo:** O Crawler infere os esquemas dos arquivos Parquet e os registra no banco de dados virtual `pnad_bronze`.
+### 3. Limpeza e Camada Silver (`Job 03 - Silver`)
+* **Dicionário (Pandas):** Uso da biblioteca `xlrd` (injetada no cluster via `%additional_python_modules`) para parsear o XLS. Aplicação de *forward fill* em células mescladas e tratamento de metadados, transformando o dicionário na *fonte da verdade* mapeada em Parquet.
+* **Microdados (PySpark):** Seleção de colunas, renomeação semântica (ex: `B0011` → `sintoma_febre`) e padronização de códigos nulos (`9` e `99`).
 
-### 4. Modelagem SQL: Camadas Silver e Gold (`Data Modeling`)
-Toda a modelagem foi construída em SQL utilizando o motor Presto/Trino do **Amazon Athena**:
-* **Silver:** A *View* `vw_silver_covid_hospital` traduz os microdados (ex: `A004 = 1` para `cor_raca = 'Branca'`), aplica o filtro temporal (meses 9, 10 e 11) e padroniza a tipagem.
-* **Gold:** Criação de *Views* agregadas adicionais contendo as métricas de negócio e KPIs finais prontas para consumo, otimizando o custo de processamento e volume de dados trafegados.
-
-### 5. Análise e Visualização (`Business Intelligence`) - *[Em Andamento]*
-* **Ferramenta:** Microsoft Power BI.
-* **Conexão:** Integração com o Amazon Athena realizada via **Driver ODBC**, consumindo diretamente a camada Gold.
-* **Objetivo:** Renderizar os gráficos para responder às 20 perguntas norteadoras definidas no documento de escopo.
+### 4. Consolidação e Camada Gold (`Job 04 - Gold`)
+* **Processo:** O PySpark cruza os microdados (Silver) com o dicionário (Silver), aplicando a desnormalização de forma programática.
+* **Entrega:** Consolida os 3 meses de dados em um único diretório Parquet (`pnad_covid_consolidado/`), 100% desnormalizado e pronto para o consumo do BI.
+* **Catálogo:** O **AWS Glue Crawler** mapeia essa camada final e a disponibiliza no **Amazon Athena** sob o banco `techchall_covid`.
 
 ---
 
-## 📊 O Plano de Contingência (Entregáveis)
+## Qualidade de Dados e Resiliência Analítica
 
-A partir da infraestrutura construída, a análise final responderá a perguntas vitais para a diretoria do hospital, divididas em 6 pilares:
+Durante a Análise Exploratória (EDA) e construção do pipeline, implementamos lógicas avançadas de qualidade de dados:
+* **Compreensão de Nulos Condicionais:** Identificamos que altas taxas de dados nulos (ex: >95% na variável de resultado de teste Swab) não representam falha técnica, mas sim o **design de saltos do questionário do IBGE**. Variáveis clínicas específicas só eram respondidas se o paciente afirmasse ter buscado a rede de saúde, exigindo tratamento lógico na camada Silver para não distorcer as métricas do hospital.
+* **Normalização de Zeros à Esquerda:** Implementação de `lpad` no PySpark para garantir que chaves de cruzamento (ex: `"4"` no dicionário e `"04"` no microdado) realizem o *Join* perfeitamente.
+
+---
+
+## O Plano de Contingência (Entregáveis)
+
+A partir da view consolidada na camada Gold, o painel no Power BI responderá a perguntas vitais para a diretoria do hospital:
 
 1.  **Demografia:** Quais estados e faixas etárias demandaram mais leitos de UTI?
 2.  **Sintomas Clínicos:** Quais combinações de sintomas (ex: perda de olfato + dificuldade de respirar) são os maiores preditores de internação?
 3.  **Sobrecarga Hospitalar:** Qual a proporção de pacientes que buscaram o SUS vs. Hospitais Privados?
-4.  **Testagem:** Qual a taxa real de positividade para calcular o avanço do surto?
-5.  **Isolamento:** Como a quebra da restrição de contato prevê picos de demanda hospitalar nas semanas seguintes?
-6.  **Impacto Econômico:** Como a impossibilidade de *home office* transformou trabalhadores em vetores primários de transmissão?
+4.  **Testagem e Isolamento:** Como a quebra da restrição de contato prevê picos de demanda hospitalar nas semanas seguintes?
+5.  **Impacto Econômico:** Como a impossibilidade de *home office* transformou trabalhadores em vetores primários de transmissão?
 
-> **Nota:** Os resultados detalhados e o Plano de Ação final serão documentados aqui após a conclusão da etapa de Business Intelligence.
+> **Nota:** Os dashboards finais e o Plano de Ação Estratégico em PDF serão documentados e anexados aqui após a conclusão da etapa de Business Intelligence.
 
 ---
 
