@@ -17,38 +17,43 @@ Diferente de análises locais em planilhas, este projeto implementa uma **Arquit
 
 ## Principais Destaques
 
-* **Arquitetura Medallion na AWS:** Implementação completa de um Data Lake com camadas Raw, Bronze e Silver no Amazon S3.
+* **Arquitetura Medallion na AWS:** Implementação completa de um Data Lake com camadas Raw, Bronze, Silver e Gold no Amazon S3 e Athena.
 * **Processamento Distribuído (Big Data):** Utilização de Jobs **PySpark** no AWS Glue para converter e particionar arquivos CSV massivos (milhões de linhas) para o formato colunar `.parquet`.
 * **Tratamento de Metadados Complexos:** Limpeza avançada de dicionários do IBGE (arquivos `.xls` legados) usando **Pandas**, resolvendo problemas estruturais (células mescladas, *forward fill*) e inconsistências de tipagem antes da ingestão.
-* **Modelagem SQL Escalável:** Criação de *Views* no **Amazon Athena** (motor Presto/Trino) para traduzir códigos numéricos do IBGE em informações de negócio, garantindo performance em consultas ad-hoc.
+* **Fronteira de Agregação no Athena:** Delegação de todo o processamento de regras de negócio (Camadas Silver e Gold) para o motor do **Amazon Athena**, mantendo a ferramenta de BI estritamente focada na visualização.
 * **Escopo Analítico Cirúrgico:** Seleção estratégica de apenas **20 variáveis** (Pilares: Demografia, Sintomas, Sobrecarga, Comportamento e Economia), analisando um recorte temporal específico de 3 meses (Julho, Agosto, Setembro).
 
 ---
 
 ## Engenharia de Dados e Pipeline (AWS)
 
-O projeto segue um pipeline robusto e auditável na nuvem da Amazon Web Services:
+O projeto segue um fluxo de dados (pipeline) automatizado e escalável na Amazon Web Services:
 
 ### 1. Ingestão e Camada Raw (`Data Ingestion`)
-* **Fonte:** Arquivos públicos da pesquisa PNAD-COVID-19 (IBGE).
-* **Armazenamento:** Amazon S3 (`data_input/`).
-* **Estrutura:** Microdados mensais em `.csv` e Dicionário de Variáveis em `.xls`.
+* **Fonte:** Arquivos públicos da pesquisa PNAD-COVID-19 via FTP do IBGE.
+* **Processo:** Um script no **AWS Glue (Python)** conecta-se diretamente ao FTP, realiza a extração dos dados brutos e os descarrega no Amazon S3 (`data_input/`).
 
 ### 2. Processamento e Camada Bronze (`Data Transformation`)
-* **Dicionário (Pandas):** Script executado via AWS Glue Interactive Sessions para limpar e padronizar os metadados. Tratamento de *schema enforcement* forçando colunas para `String` para evitar erros de `ArrowInvalid`.
+* **Dicionário (Pandas):** Script executado via AWS Glue Notebook para limpar e padronizar os metadados. Tratamento de *schema enforcement* forçando colunas para `String` para evitar erros de leitura (`ArrowInvalid`).
 * **Microdados (PySpark):** Job de ETL distribuído para leitura dos arquivos massivos, conversão e particionamento dos dados para `.parquet`, garantindo compressão e otimização de leitura. Salvamento no Amazon S3 (`data_output/bronze/`).
 
-### 3. Catálogo de Dados e Camada Silver (`Data Modeling`)
-* **Catálogo:** Configuração de **AWS Glue Crawlers** para inferir os esquemas (schemas) dos arquivos Parquet e registrar as tabelas no AWS Glue Data Catalog (`pnad_bronze`).
-* **Modelagem:** Uso do **Amazon Athena** para criar a *View* da camada Silver (`vw_silver_covid_hospital`). Esta camada traduz os microdados brutos (ex: `A004 = 1`) para dimensões de negócio (ex: `cor_raca = 'Branca'`) e aplica o filtro temporal dos 3 meses de análise.
+### 3. Orquestração e Catálogo de Dados (`Data Catalog`)
+* **Automação:** Utilização de orquestração baseada em eventos (via **AWS Glue Workflows / EventBridge**) para disparar automaticamente o **AWS Glue Crawler** assim que os Jobs de processamento são finalizados.
+* **Catálogo:** O Crawler infere os esquemas dos arquivos Parquet e os registra no banco de dados virtual `pnad_bronze`.
 
-### 4. Análise e Visualização (`Business Intelligence`) - *[Em Andamento]*
-* **Ferramenta:** Power BI conectado diretamente ao Amazon Athena via ODBC/DirectQuery.
-* **Objetivo:** Responder às 20 perguntas norteadoras definidas no documento de escopo.
+### 4. Modelagem SQL: Camadas Silver e Gold (`Data Modeling`)
+Toda a modelagem foi construída em SQL utilizando o motor Presto/Trino do **Amazon Athena**:
+* **Silver:** A *View* `vw_silver_covid_hospital` traduz os microdados (ex: `A004 = 1` para `cor_raca = 'Branca'`), aplica o filtro temporal (meses 9, 10 e 11) e padroniza a tipagem.
+* **Gold:** Criação de *Views* agregadas adicionais contendo as métricas de negócio e KPIs finais prontas para consumo, otimizando o custo de processamento e volume de dados trafegados.
+
+### 5. Análise e Visualização (`Business Intelligence`) - *[Em Andamento]*
+* **Ferramenta:** Microsoft Power BI.
+* **Conexão:** Integração com o Amazon Athena realizada via **Driver ODBC**, consumindo diretamente a camada Gold.
+* **Objetivo:** Renderizar os gráficos para responder às 20 perguntas norteadoras definidas no documento de escopo.
 
 ---
 
-## O Plano de Contingência (Entregáveis)
+## 📊 O Plano de Contingência (Entregáveis)
 
 A partir da infraestrutura construída, a análise final responderá a perguntas vitais para a diretoria do hospital, divididas em 6 pilares:
 
@@ -89,7 +94,7 @@ Desenvolvido como parte do Tech Challenge (Fase 3) da Pós-Tech Data Analytics (
         <img src="https://github.com/Jonathan-Paixao.png" width="100px;" alt=""/>
         <br /><sub><b>Jonathan Paixão</b></sub>
       </a><br />
-      📊 Analytic Engineer
+      🐍 Analytic Engineer
     </td>
     <td align="center">
       <a href="https://github.com/rafaelvieiravidal-glitch">
