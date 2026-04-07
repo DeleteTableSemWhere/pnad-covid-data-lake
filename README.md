@@ -32,16 +32,19 @@ O projeto segue um fluxo de dados (pipeline) estruturado em 4 etapas no AWS Glue
 * **Processo:** Script Python (Boto3/Requests) executado via Glue para extrair os microdados (`.zip`) e a documentação (`.xls`) diretamente do FTP do IBGE, descarregando-os intactos no Amazon S3 (`data_input/`).
 
 ### 2. Processamento e Camada Bronze (`Job 02 - Bronze`)
-* **Microdados:** O job extrai o CSV de dentro do ZIP dinamicamente, infere o schema e grava no formato colunar `.parquet` (`data_output/bronze/`).
-* **Resiliência:** O código possui detecção e adequação automática para garantir a leitura independentemente do separador utilizado pelo IBGE.
+* **Microdados:** O job extrai o CSV de dentro do ZIP dinamicamente, infere o schema e grava no formato colunar `.parquet` (`data_output/bronze/microdados/`).
+* **Documentação:** Os arquivos de dicionário (`.xls`) são copiados para `data_output/bronze/documentacao/`, preservando o insumo original para enriquecimento posterior.
+* **Resiliência:** O código trata variações de estrutura dos arquivos de origem para manter robustez na leitura.
 
-### 3. Limpeza e Camada Silver (`Job 03 - Silver`)
-* **Dicionário (Pandas):** Uso da biblioteca `xlrd` (injetada no cluster via `%additional_python_modules`) para parsear o XLS. Aplicação de *forward fill* em células mescladas e tratamento de metadados, transformando o dicionário na *fonte da verdade* mapeada em Parquet.
-* **Microdados (PySpark):** Seleção de colunas, renomeação semântica (ex: `B0011` → `sintoma_febre`) e padronização de códigos nulos (`9` e `99`).
+### 3. Limpeza, Enriquecimento e Camada Silver (`Job 03 - Silver`)
+* **Microdados (PySpark):** Seleção de colunas, renomeação semântica (ex: `B0011` → `sintoma_febre`) e padronização de códigos nulos.
+* **Lookup de dicionário (Pandas + Spark):** O dicionário é lido diretamente do Bronze (`data_output/bronze/documentacao/`), tratado (*forward fill*, limpeza e normalização) e convertido para lookup em Spark.
+* **Join na Silver:** A desnormalização é aplicada na própria Silver via join dinâmico entre microdados e lookup, incluindo normalização de chaves com `lpad` e fallback com `coalesce`.
+* **Saída:** A Silver grava apenas os microdados já enriquecidos em `data_output/silver/microdados/`
 
 ### 4. Consolidação e Camada Gold (`Job 04 - Gold`)
-* **Processo:** O PySpark cruza os microdados (Silver) com o dicionário (Silver), aplicando a desnormalização de forma programática.
-* **Entrega:** Consolida os 3 meses de dados em um único diretório Parquet (`pnad_covid_consolidado/`), 100% desnormalizado e pronto para o consumo do BI.
+* **Processo:** A Gold passa a focar somente na consolidação dos datasets já enriquecidos na Silver.
+* **Entrega:** Consolida os 3 meses em um único diretório Parquet (`pnad_covid_consolidado/`), pronto para consumo analítico e BI.
 * **Catálogo:** O **AWS Glue Crawler** mapeia essa camada final e a disponibiliza no **Amazon Athena** sob o banco `techchall_covid`.
 
 ---
