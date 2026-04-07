@@ -18,7 +18,7 @@ Diferente de análises locais em planilhas, este projeto implementa uma **Arquit
 ## Principais Destaques
 
 * **Arquitetura Medallion na AWS:** Implementação completa de um pipeline automatizado com camadas Raw, Bronze, Silver e Gold no Amazon S3.
-* **ETL Distribuído com PySpark:** Utilização de 4 Jobs no **AWS Glue** para orquestrar desde a extração no FTP governamental até a consolidação final.
+* **ELT Distribuído com PySpark:** Utilização de 4 Jobs no **AWS Glue** para orquestrar desde a extração no FTP governamental até a consolidação final.
 * **Desnormalização Dinâmica (Zero Hardcode):** A tradução dos códigos do IBGE (ex: `11` = `Rondônia`) não é feita manualmente. O Job Gold constrói um *lookup dictionary* dinâmico a partir dos metadados e injeta as regras de negócio via PySpark, garantindo resiliência a mudanças no questionário.
 * **Escopo Analítico Cirúrgico:** Filtragem semântica focada em responder **20 perguntas norteadoras estratégicas** (Pilares: Demografia, Sintomas, Sobrecarga, Comportamento e Economia), analisando o trimestre de Setembro, Outubro e Novembro de 2020.
 
